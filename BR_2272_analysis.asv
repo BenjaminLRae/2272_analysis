@@ -4,8 +4,7 @@
 %  Last edited: 13/12/2023
 %
 %  Notes: Currently, the script can process the data, calculate
-%  derivatives, and plot in stackedplots (good way to correlate data with
-%  movements)
+%  derivatives, and plot in stackedplots. 
 %
 %  I wanted to try and automatically split moves based on measuring when
 %  acceleration or jerk exceed a threshold - however doing this
@@ -13,12 +12,7 @@
 %
 %  Instead I think it might make sense to use thresholding to detect
 %  changing jerk, i.e. beginning of any meaningful data for any given
-%  machine move, then separate data manually into individual moves (if we
-%  want to split them at all). 
-% 
-%  Using the jerk for each axis individually might not be much use - next
-%  I'm wondering whether to calculate displacement/speed/acceleration/jerk
-%  in 3D
+%  machine move, then separate data manually into 
 %
 
 clc
@@ -102,8 +96,7 @@ s = stackedplot(DataTable, ["X_Pos", "Y_Pos", "Z_Pos"]);
 title("Individual axis positions");
 grid on;
 
-%% Try to separate the movements based on jerk. When jerk is not zero, mark cut in data.
-% Currently this won't work
+%% Try to separate the movements based on acc. When acc is not zero, mark cut in data.
 
 threshold = 0.0007; % difference from zero that implies acceleration/movement
 inMove = false; % flag indicating whether we're in a move, i.e. not static
@@ -111,8 +104,6 @@ startIndices = 0;
 startIndicesCounter = 1;
 endIndices = 0;
 endIndicesCounter = 1;
-
-
 
 for i=1:length(smoothedSpeedAbs) 
     if smoothedSpeedAbs(i) > threshold
@@ -160,11 +151,6 @@ end
 %% Stacked plot to show multiple data
 figure;
 s = stackedplot(DataTable, ["X_Pos", "X_Spd", "X_Acc", "X_Jrk"]);
-title("Data for linear move in X axis, high feedrate (4000 mm/min)");
-
-%% Stacked plot to show multiple data
-figure;
-s = stackedplot(DataTable, ["X_Acc", "Y_Acc", "Z_Acc"]);
 title("Data for linear move in X axis, high feedrate (4000 mm/min)");
 
 %% Plot overlay lines showing moves
