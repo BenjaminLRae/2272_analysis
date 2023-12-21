@@ -4,12 +4,12 @@
 %  Last edited: 13/12/2023
 %
 
-clc
+%clc
 clear
 close all
 
 % Import data using automated importer
-Data = importfile('P:\NIN Projects\NIN2272\Laser Tracker Data\NIN2272\TEST_1_081223\TEST_1_H.txt');
+Data = importfile('P:\NIN Projects\NIN2272\Laser Tracker Data\NIN2272\TEST_1_081223\TEST_1_M.txt');
 
 % Number of points captured in file
 numPoints = height(Data);
@@ -38,16 +38,15 @@ disp('Calculation complete');
 
 %% Create normalised option (no negative axis moves)
 DataNorm = Data;
-% DataNorm.x = abs(DataNorm.x);
-% DataNorm.y = abs(DataNorm.y);
-% DataNorm.z = abs(DataNorm.z);
+DataNorm.x = abs(DataNorm.x);
+DataNorm.y = abs(DataNorm.y);
+DataNorm.z = abs(DataNorm.z);
 
-DataNorm.x = DataNorm.x;
-DataNorm.y = DataNorm.y;
-DataNorm.z = DataNorm.z;
+% DataNorm.x = DataNorm.x;
+% DataNorm.y = DataNorm.y;
+% DataNorm.z = DataNorm.z;
 
-%% Graphing of overall movements (3D + separated X, Y, Z)
-
+%% Graphing
 t = tiledlayout(3,6);
 ax1 = nexttile(1, [3 3]);
 hold on;
@@ -82,134 +81,174 @@ title('Z axis');
 grid on;
 xlabel("time (s)");
 
-%% Calculate derivatives
+%% peak detection
+figPeak = figure;
+title("Peak detection on X axis");
 
-speed = gradient(DataNorm.x);                       % 1st derivative / speed
-smoothedSpeed = smoothdata(speed,"movmean",200);    % smoothing speed data
-smoothedSpeedAbs = abs(smoothedSpeed);              % absolute set of speed data (all data positive)
-acc = gradient(speed);                              % 2nd derivative / acceleration 
-smoothedAcc = smoothdata(acc,"movmean",400);        % smoothing acc data
-smoothedAccAbs = abs(smoothedAcc);                  % absolute set of acc data (all data positive)
-jerk = gradient(acc);                               % 3rd derivative / jerk
-smoothedJerk = smoothdata(jerk, "gaussian", 1000);  % smoothing jerk data
+plot(DataNorm.time, DataNorm.x);
 
-%% Try to separate the movements based on speed. When speed is not zero, mark cut in data.
+speed = gradient(DataNorm.x); % 1st derivative / speed
+acc = gradient(speed); % 2nd derivative / acceleration 
+smoothedAcc = smoothdata(acc,"movmean",400); % smoothing 2nd deriv. data to see peaks
+smoothedAccAbs = abs(smoothedAcc); % make all points positive so that peak finding sees negative jerk too
 
-threshold = 0.0007; % difference from zero that implies acceleration/movement
-inMove = false; % flag indicating whether we're in a move, i.e. not static
-startIndices = 0;
-startIndicesCounter = 1;
-endIndices = 0;
-endIndicesCounter = 1;
+figure 
+plot(DataNorm.time, speed, 'b')
+hold on
+plot(DataNorm.time, acc, 'r')
+plot(DataNorm.time, smoothedAcc, 'g')
+hold off
 
-for i=1:length(smoothedSpeedAbs) 
-    if smoothedSpeedAbs(i) > threshold
-        % postive threshold exceeded
-        if inMove
-            % we're already in a move, do nothing.            
-        else 
-            % we're not in a move, so set the inMove flag, and record the
-            % index as the start of a move.
-            inMove = true;
-            startIndices(startIndicesCounter) = i;
-            startIndicesCounter = startIndicesCounter + 1;
-        end        
-    else
-        % threshold not exceeded
-        if inMove
-            % we're in a move, and threshold is now not exceeded - move is
-            % concluded, so record end index.
-            inMove = false;
-            endIndices(endIndicesCounter) = i;
-            endIndicesCounter = endIndicesCounter + 1;
-        else
-            % we're not in a move but threshold is not exceeded, do
-            % nothing.
-        end
-    end
+% [pks,locs,p] = findpeaks(smoothedAccAbs, DataNorm.time,'MinPeakProminence',0.0001,'MinPeakHeight',1e-05);
+% for i=1:length(locs)
+%     xline(locs(i),'g');
+% end
+
+%% Speed Calculation
+
+MyData = table2array(DataNorm);
+
+Mydist=zeros(length(MyData),1);
+speed=zeros(length(MyData),1);
+
+% Taking the 1st derivative of position wrt time
+time_array=0:dt:dt*(length(MyData)-1);
+counter=1;
+for p=1:length(MyData)-1
+    P1=MyData(p,1:3);
+    P2=MyData(p+1,1:3);
+    Mydist(counter)=norm(P2-P1);
+    speed(counter)=Mydist(counter)/dt*60; %convert inch to mm
+    counter=counter+1;
 end
 
-disp("Recorded " + length(startIndices) + " move start points, and " + length(endIndices) + " move end points.");
+% Smoothing the feed rate data
+SmoothSpeed = smoothdata(speed);
 
-figure;
-plot(DataNorm.time, DataNorm.x);
-% yyaxis right;
-% plot(DataNorm.time, smoothedSpeedAbs);
-title("Position data with start/end points of moves indicated");
+% Feed rate plot
+figure
+plot(time_array,SmoothSpeed,'r','LineWidth',2)
+title('Attained Feed Rate (mm/min)')
+xlabel('Time (sec)')
+ylabel('Feed Rate (mm/min)')
+hold on 
+plot(time_array,speed,'b')
+% ylim([0 5000])
+hold off
 
-for i=1:length(startIndices)
-    xline(DataNorm.time(startIndices(i)),'g');
+%% Acceleration calculation
+
+Mydist=zeros(length(MyData),1);
+acc=zeros(length(MyData),1);
+
+% Taking the 2nd derivative of position wrt time - Smoothed feedrate
+time_array=0:dt:dt*(length(speed)-1);
+ind=1;
+for p=1:length(speed)-1
+    V1=speed(p);
+    V2=speed(p+1);
+    Mydist(ind)=V2-V1;
+    acc(ind)=Mydist(ind)/dt/1000;
+    ind=ind+1;
 end
 
-for i=1:length(endIndices)
-    xline(DataNorm.time(endIndices(i)),'r');
-end
+figure
+plot(time_array,acc,'r')
+title('Attained Acceleration (m/s^2)')
+xlabel('Time (sec)')
+ylabel('Acceleration (m/s^2)')
 
-%% Stacked plot to show multiple data
-outfmt = 'hh:mm:ss.SSS';
-D = duration(0, 0, DataNorm.time,'Format',outfmt);
-T = table(D,DataNorm.x,smoothedSpeed,smoothedAcc,smoothedJerk,'VariableNames',["Time","X Position","Speed","Acceleration","Jerk"]);
-XData = table2timetable(T);
-figure;
-s = stackedplot(XData);
-title("Data for linear move in X axis, high feedrate (4000 mm/min)");
-
-%% Plot overlay lines showing moves
-ax = findobj(s.NodeChildren, 'Type', 'Axes');
-for j=1:length(ax)
-    for i=1:length(startIndices)
-        xline(ax(j),XData.Time(startIndices(i)),'g');
-    end
-    
-    for i=1:length(endIndices)
-        xline(ax(j),XData.Time(endIndices(i)),'r');
-    end
-end
-
-%% Below - individual sections for plotting data, not required to run! 
-% Just for testing/visualising
-
-%% Plot speed over position
-figure;
-plot(DataNorm.time, DataNorm.x);
-yyaxis right;
-plot(DataNorm.time, speed);
-title("Speed vs time (red), over Position vs time (blue)");
-
-%% Plot smoothedSpeedAbs over position
-figure;
-plot(DataNorm.time, DataNorm.x);
-yyaxis right;
-plot(DataNorm.time, smoothedSpeedAbs);
-title("Smoothed, Absolute Speed vs time (red), over Position vs time (blue)");
-
-%% Plot acc over position
-figure;
-plot(DataNorm.time, DataNorm.x);
-yyaxis right;
-plot(DataNorm.time, smoothedAcc);
-title("Smoothed Acc vs time (red), over Position vs time (blue)");
-
-%% Plot acc over speed
-figure;
-plot(DataNorm.time, speed);
-yyaxis right;
-plot(DataNorm.time, smoothedAcc);
-title("Smoothed Acc vs time (red), over Speed vs time (blue)");
-
-%% Plot jerk over position
+%%
+jerk = gradient(acc);
+smoothedJerk = smoothdata(jerk, "gaussian", 1000);
 figure;
 plot(DataNorm.time, smoothedJerk);
 yyaxis right
 plot(DataNorm.time, DataNorm.x);
 title("Smoothed Jerk over Position");
 
-%% Plot jerk over acc
 figure;
 plot(DataNorm.time, smoothedJerk);
 yyaxis right
 plot(DataNorm.time, smoothedAcc);
 title("Smoothed Jerk over Acc");
+
+%% Try to separate the movements based on acceleration. When acceleration is not zero, mark cut in data.
+
+threshold = 0.0001; % difference from zero that implies acceleration/movement
+inMove = false; % flag indicating whether we're in a move, i.e. not static
+
+for i=0:length(grad) 
+    if grad(i) > threshold
+        % postive threshold exceeded
+        if inMove
+            % we're already in a move, do nothing.
+
+        else 
+            % we're not in a move, so set the inMove flag, and record the
+            % index as the start of a move.
+            inMove = true;
+        end        
+    elseif grad(i) < (0-threshold)
+        % negative threshold exceeded
+        if inMove
+            % we're already in a move, do nothing.
+        else 
+            % we're not in a move, so set the inMove flag, and record the
+            % index as the start of a move.
+            inMove = true;
+        end 
+    else
+        % threshold not exceeded
+
+        if inMove
+            inMove = false;
+        end
+    end
+
+end
+
+figure;
+plot(DataNorm.time, DataNorm.x);
+yyaxis right;
+plot(DataNorm.time, smoothedAcc);
+title("Smoothed Acc vs time (red), over Position vs time (blue)");
+
+%%
+
+figure;
+plot(DataNorm.time, DataNorm.x);
+yyaxis right;
+plot(DataNorm.time, speed);
+title("Speed vs time (red), over Position vs time (blue)");
+
+%%
+figure;
+plot(DataNorm.time, DataNorm.x);
+yyaxis right;
+plot(DataNorm.time, acc);
+title("Acc vs time (red), over Position vs time (blue)");
+
+%%
+figure;
+plot(DataNorm.time, DataNorm.x);
+yyaxis right;
+plot(DataNorm.time, smoothedAcc);
+title("Smoothed Acc vs time (red), over Position vs time (blue)");
+
+%%
+figure;
+plot(DataNorm.time, speed);
+yyaxis right;
+plot(DataNorm.time, smoothedAcc);
+title("Smoothed Acc vs time (red), over Speed vs time (blue)");
+
+
+%%
+
+for i=1:length(locs)
+    xline(locs(i));
+end
 
 function TEST1H1 = importfile(filename, dataLines)
 %IMPORTFILE Import data from a text file
