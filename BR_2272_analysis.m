@@ -26,8 +26,8 @@ clear
 close all
 
 % Import data using automated importer
-%Data = importfile('P:\NIN Projects\NIN2272\Laser Tracker Data\NIN2272\TEST_1_081223\TEST_1_H.txt');
-Data = importfile('A:\namrc\2272_analysis\Test data\TEST_3_H.txt');
+Data = importfile('P:\NIN Projects\NIN2272\Laser Tracker Data\NIN2272\TEST_1_081223\TEST_1_H.txt');
+%Data = importfile('A:\namrc\2272_analysis\Test data\TEST_3_H.txt');
 
 % Number of points captured in file
 numPoints = height(Data);
@@ -68,24 +68,29 @@ X_Jrk = smoothdata(gradient(X_Acc),"gaussian", 1000); % 3rd derivative / jerk fo
 Y_Jrk = smoothdata(gradient(Y_Acc),"gaussian", 1000); % 3rd derivative / jerk for Y
 Z_Jrk = smoothdata(gradient(Z_Acc),"gaussian", 1000); % 3rd derivative / jerk for Z
 
-% smoothedSpeedAbs = abs(smoothedSpeed);              % absolute set of speed data (all data positive)
-% smoothedAccAbs = abs(smoothedAcc);                  % absolute set of acc data (all data positive)
-% smoothedJerk = smoothdata(jerk, "gaussian", 1000);  % smoothing jerk data
-
 %% Convert data table into timetable (allows extra processing)
 
 outfmt = 'hh:mm:ss.SSS'; 
 D = duration(0, 0, Data.time,'Format',outfmt); % convert time into duration format using above format
 
+% Create overall data table with all data
 T = table(D,Data.x,Data.y,Data.z,X_Spd,X_Acc,X_Jrk,Y_Spd,Y_Acc,Y_Jrk,Z_Spd,Z_Acc,Z_Jrk,'VariableNames',["Time","X_Pos","Y_Pos","Z_Pos","X_Spd","X_Acc","X_Jrk","Y_Spd","Y_Acc","Y_Jrk","Z_Spd","Z_Acc","Z_Jrk"]);
-DataTable = table2timetable(T);
+DataTable = table2timetable(T); 
+
+% Create separated data tables for individual axes
+X_Data = table(D, Data.x, X_Spd, X_Acc, X_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
+X_Data = table2timetable(X_Data);
+Y_Data = table(D, Data.y, Y_Spd, Y_Acc, Y_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
+Y_Data = table2timetable(Y_Data);
+Z_Data = table(D, Data.z, Z_Spd, Z_Acc, Z_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
+Z_Data = table2timetable(Z_Data);
 
 %% Graphing of overall movements (3D + separated X, Y, Z)
 
 t = tiledlayout(3,6);
 ax1 = nexttile(1, [3 3]);
 hold on;
-f3d = plot3(DataNorm.x, DataNorm.y, DataNorm.z);
+f3d = plot3(DataTable.X_Pos,DataTable.Y_Pos,DataTable.Z_Pos);
 xlim padded;
 ylim padded;
 zlim padded;
@@ -102,6 +107,41 @@ s = stackedplot(DataTable, ["X_Pos", "Y_Pos", "Z_Pos"]);
 title("Individual axis positions");
 grid on;
 
+%% Graphing of X/Y/Z movement components
+figure;
+t1 = tiledlayout(3,6);
+
+ax3 = nexttile(1, [3 2]);
+s = stackedplot(DataTable, ["X_Pos", "X_Spd", "X_Acc", "X_Jrk"]);
+title("Data for linear move in X axis, high feedrate (4000 mm/min)");
+grid on;
+
+ax4 = nexttile(3, [3 2]);
+s = stackedplot(DataTable, ["Y_Pos", "Y_Spd", "Y_Acc", "Y_Jrk"]);
+title("Data for linear move in Y axis, high feedrate (4000 mm/min)");
+grid on;
+
+ax4 = nexttile(5, [3 2]);
+s = stackedplot(DataTable, ["Z_Pos", "Z_Spd", "Z_Acc", "Z_Jrk"]);
+title("Data for linear move in Y axis, high feedrate (4000 mm/min)");
+grid on;
+
+%% Graphing of X/Y/Z movement components but overlaid on same axes
+figure;
+s = stackedplot(X_Data,Y_Data,Z_Data,"Title","Linear move components, high feedrate (4000 mm/min)");
+grid on;
+
+%% Calculate 3D displacement (speed)
+figure;
+disp = zeros(length(DataTable.Time),1);
+for i=2:length(DataTable.Time)
+    P1 = [X_Data.Position(i-1) Y_Data.Position(i-1) Z_Data.Position(i-1)];
+    P2 = [X_Data.Position(i) Y_Data.Position(i) Z_Data.Position(i)];
+    disp(i) = norm(P2 - P1);
+end
+
+3d
+
 %% Try to separate the movements based on jerk. When jerk is not zero, mark cut in data.
 % Currently this won't work
 
@@ -111,8 +151,6 @@ startIndices = 0;
 startIndicesCounter = 1;
 endIndices = 0;
 endIndicesCounter = 1;
-
-
 
 for i=1:length(smoothedSpeedAbs) 
     if smoothedSpeedAbs(i) > threshold
