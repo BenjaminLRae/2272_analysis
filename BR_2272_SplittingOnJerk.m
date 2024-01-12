@@ -3,22 +3,8 @@
 %  Author: Ben Rae
 %  Last edited: 13/12/2023
 %
-%  Notes: Currently, the script can process the data, calculate
-%  derivatives, and plot in stackedplots (good way to correlate data with
-%  movements)
-%
-%  I wanted to try and automatically split moves based on measuring when
-%  acceleration or jerk exceed a threshold - however doing this
-%  automatically is a bit tricky. 
-%
-%  Instead I think it might make sense to use thresholding to detect
-%  changing jerk, i.e. beginning of any meaningful data for any given
-%  machine move, then separate data manually into individual moves (if we
-%  want to split them at all). 
-% 
-%  Using the jerk for each axis individually might not be much use - next
-%  I'm wondering whether to calculate displacement/speed/acceleration/jerk
-%  in 3D
+%  Notes: This script is focused on splitting individual moves out using
+%  3D acceleration values.
 %
 
 clc
@@ -54,7 +40,7 @@ Data.z = Data.z * 25.4;
 
 disp('Calculation complete');
 
-%% Calculate derivatives
+%% Calculate isolated axis derivatives & table
                   
 X_Spd = smoothdata(gradient(Data.x),"movmean",200);   % 1st derivative / speed for X             
 Y_Spd = smoothdata(gradient(Data.y),"movmean",200);   % 1st derivative / speed for Y
@@ -68,16 +54,11 @@ X_Jrk = smoothdata(gradient(X_Acc),"gaussian", 1000); % 3rd derivative / jerk fo
 Y_Jrk = smoothdata(gradient(Y_Acc),"gaussian", 1000); % 3rd derivative / jerk for Y
 Z_Jrk = smoothdata(gradient(Z_Acc),"gaussian", 1000); % 3rd derivative / jerk for Z
 
-%% Convert data table into timetable (allows extra processing)
+% Create separated data tables for individual axes
 
 outfmt = 'hh:mm:ss.SSS'; 
 D = duration(0, 0, Data.time,'Format',outfmt); % convert time into duration format using above format
 
-% Create overall data table with all data
-T = table(D,Data.x,Data.y,Data.z,X_Spd,X_Acc,X_Jrk,Y_Spd,Y_Acc,Y_Jrk,Z_Spd,Z_Acc,Z_Jrk,'VariableNames',["Time","X_Pos","Y_Pos","Z_Pos","X_Spd","X_Acc","X_Jrk","Y_Spd","Y_Acc","Y_Jrk","Z_Spd","Z_Acc","Z_Jrk"]);
-DataTable = table2timetable(T); 
-
-% Create separated data tables for individual axes
 X_Data = table(D, Data.x, X_Spd, X_Acc, X_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
 X_Data = table2timetable(X_Data);
 Y_Data = table(D, Data.y, Y_Spd, Y_Acc, Y_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
@@ -85,73 +66,45 @@ Y_Data = table2timetable(Y_Data);
 Z_Data = table(D, Data.z, Z_Spd, Z_Acc, Z_Jrk, 'VariableNames',["Time", "Position", "Speed", "Acceleration", "Jerk"]);
 Z_Data = table2timetable(Z_Data);
 
-%% Graphing of overall movements (3D + separated X, Y, Z)
+%% Calculate XYZ derivatives
+XYZ_Spd = zeros(length(X_Spd),1);
 
-t = tiledlayout(3,6);
-ax1 = nexttile(1, [3 3]);
-hold on;
-f3d = plot3(DataTable.X_Pos,DataTable.Y_Pos,DataTable.Z_Pos);
-xlim padded;
-ylim padded;
-zlim padded;
-f3dOrigin = plot3(0,0,0);
-f3dOrigin.Color = "red";
-f3dOrigin.Marker = "o";
-daspect([1 1 1]);
-grid on;
-title('3D view');
-ylabel('distance (')
-
-ax2 = nexttile(4, [3 3]);
-s = stackedplot(DataTable, ["X_Pos", "Y_Pos", "Z_Pos"]);
-title("Individual axis positions");
-grid on;
-
-%% Graphing of X/Y/Z movement components
-figure;
-t1 = tiledlayout(3,6);
-
-ax3 = nexttile(1, [3 2]);
-s = stackedplot(DataTable, ["X_Pos", "X_Spd", "X_Acc", "X_Jrk"]);
-title("Data for linear move in X axis, high feedrate (4000 mm/min)");
-grid on;
-
-ax4 = nexttile(3, [3 2]);
-s = stackedplot(DataTable, ["Y_Pos", "Y_Spd", "Y_Acc", "Y_Jrk"]);
-title("Data for linear move in Y axis, high feedrate (4000 mm/min)");
-grid on;
-
-ax4 = nexttile(5, [3 2]);
-s = stackedplot(DataTable, ["Z_Pos", "Z_Spd", "Z_Acc", "Z_Jrk"]);
-title("Data for linear move in Y axis, high feedrate (4000 mm/min)");
-grid on;
-
-%% Graphing of X/Y/Z movement components but overlaid on same axes
-figure;
-s = stackedplot(X_Data,Y_Data,Z_Data,"Title","Linear move components, high feedrate (4000 mm/min)");
-grid on;
-
-%% Calculate 3D displacement (speed)
-figure;
-disp = zeros(length(DataTable.Time),1);
-for i=2:length(DataTable.Time)
+for i=2:length(X_Spd)
     P1 = [X_Data.Position(i-1) Y_Data.Position(i-1) Z_Data.Position(i-1)];
     P2 = [X_Data.Position(i) Y_Data.Position(i) Z_Data.Position(i)];
-    disp(i) = norm(P2 - P1);
+    XYZ_Spd(i) = norm(P2 - P1);
+    % calculate euclidean distance between consecutive points = speed
 end
+
+XYZ_Spd = smoothdata(XYZ_Spd, "movmean", 200);
+XYZ_Acc = smoothdata(gradient(XYZ_Spd),"movmean",200);
+XYZ_Jrk = smoothdata(gradient(XYZ_Acc),"gaussian", 400);
+
+%% Convert data table into timetable (allows extra processing)
+
+% Create overall data table with all data
+T = table(D,Data.x,Data.y,Data.z,X_Spd,X_Acc,X_Jrk,Y_Spd,Y_Acc,Y_Jrk,Z_Spd,Z_Acc,Z_Jrk,XYZ_Spd,XYZ_Acc,XYZ_Jrk,'VariableNames',["Time","X_Pos","Y_Pos","Z_Pos","X_Spd","X_Acc","X_Jrk","Y_Spd","Y_Acc","Y_Jrk","Z_Spd","Z_Acc","Z_Jrk", "XYZ_Spd", "XYZ_Acc", "XYZ_Jrk"]);
+DataTable = table2timetable(T); 
+
+%% Graph XYZ derivatives
+figure;
+s = stackedplot(DataTable, {["X_Pos", "Y_Pos", "Z_Pos"], "XYZ_Spd", "XYZ_Acc", "XYZ_Jrk"});
+grid on;
 
 %% Try to separate the movements based on jerk. When jerk is not zero, mark cut in data.
 % Currently this won't work
 
-threshold = 0.0007; % difference from zero that implies acceleration/movement
+threshold = 4e-08; % difference from zero that implies acceleration/movement
 inMove = false; % flag indicating whether we're in a move, i.e. not static
 startIndices = 0;
 startIndicesCounter = 1;
 endIndices = 0;
 endIndicesCounter = 1;
 
-for i=1:length(smoothedSpeedAbs) 
-    if smoothedSpeedAbs(i) > threshold
+XYZ_Jrk_Norm = abs(DataTable.XYZ_Jrk);
+
+for i=1:length(XYZ_Jrk_Norm) 
+    if XYZ_Jrk_Norm(i) > threshold
         % postive threshold exceeded
         if inMove
             % we're already in a move, do nothing.            
@@ -178,19 +131,16 @@ for i=1:length(smoothedSpeedAbs)
 end
 
 disp("Recorded " + length(startIndices) + " move start points, and " + length(endIndices) + " move end points.");
-
 figure;
-plot(DataNorm.time, DataNorm.x);
-% yyaxis right;
-% plot(DataNorm.time, smoothedSpeedAbs);
-title("Position data with start/end points of moves indicated");
+title("Jerk data with start/end points of threshold detection indicated");
+plot(DataTable.Time, XYZ_Jrk_Norm);
 
 for i=1:length(startIndices)
-    xline(DataNorm.time(startIndices(i)),'g');
+    xline(DataTable.Time(startIndices(i)),'g');
 end
 
 for i=1:length(endIndices)
-    xline(DataNorm.time(endIndices(i)),'r');
+    xline(DataTable.Time(endIndices(i)),'r');
 end
 
 %% Stacked plot to show multiple data
